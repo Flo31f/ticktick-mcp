@@ -17,20 +17,31 @@ async function ticktick(path) {
   return res.json();
 }
 
-app.get("/sse", async (req, res) => {
-  res.setHeader("Content-Type", "text/event-stream");
-  res.setHeader("Cache-Control", "no-cache");
-  res.setHeader("Connection", "keep-alive");
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.flushHeaders();
+const TOOLS = [
+  {
+    name: "get_projects",
+    description: "Gibt alle TickTick-Projekte zurück",
+    inputSchema: { type: "object", properties: {} }
+  },
+  {
+    name: "get_all_tasks",
+    description: "Gibt alle offenen Aufgaben aus allen Projekten zurück",
+    inputSchema: { type: "object", properties: {} }
+  },
+  {
+    name: "get_tasks",
+    description: "Gibt Aufgaben eines bestimmten Projekts zurück",
+    inputSchema: {
+      type: "object",
+      properties: {
+        project_id: { type: "string", description: "Die Projekt ID" }
+      },
+      required: ["project_id"]
+    }
+  }
+];
 
-  // Sende endpoint event
-  res.write(`event: endpoint\ndata: ${JSON.stringify({ uri: "/messages" })}\n\n`);
-
-  req.on("close", () => res.end());
-});
-
-app.post("/messages", async (req, res) => {
+app.post("/mcp", async (req, res) => {
   const { method, params, id } = req.body;
 
   if (method === "initialize") {
@@ -45,34 +56,7 @@ app.post("/messages", async (req, res) => {
   }
 
   if (method === "tools/list") {
-    return res.json({
-      jsonrpc: "2.0", id,
-      result: {
-        tools: [
-          {
-            name: "get_projects",
-            description: "Gibt alle TickTick-Projekte zurück",
-            inputSchema: { type: "object", properties: {} }
-          },
-          {
-            name: "get_all_tasks",
-            description: "Gibt alle offenen Aufgaben zurück",
-            inputSchema: { type: "object", properties: {} }
-          },
-          {
-            name: "get_tasks",
-            description: "Gibt Aufgaben eines Projekts zurück",
-            inputSchema: {
-              type: "object",
-              properties: {
-                project_id: { type: "string", description: "Projekt ID" }
-              },
-              required: ["project_id"]
-            }
-          }
-        ]
-      }
-    });
+    return res.json({ jsonrpc: "2.0", id, result: { tools: TOOLS } });
   }
 
   if (method === "tools/call") {
@@ -84,46 +68,3 @@ app.post("/messages", async (req, res) => {
         const projects = await ticktick("/project");
         result = projects.map((p) => ({ id: p.id, name: p.name }));
       } else if (tool === "get_all_tasks") {
-        const projects = await ticktick("/project");
-        const allTasks = [];
-        for (const project of projects) {
-          try {
-            const data = await ticktick(`/project/${project.id}/data`);
-            (data.tasks || []).filter((t) => t.status === 0).forEach((t) =>
-              allTasks.push({
-                project: project.name,
-                title: t.title,
-                priority: ["keine","niedrig","mittel","hoch"][t.priority] || "keine",
-                due_date: t.dueDate || null,
-              })
-            );
-          } catch (_) {}
-        }
-        result = allTasks;
-      } else if (tool === "get_tasks") {
-        const data = await ticktick(`/project/${args.project_id}/data`);
-        result = (data.tasks || []).filter((t) => t.status === 0).map((t) => ({
-          title: t.title,
-          priority: ["keine","niedrig","mittel","hoch"][t.priority] || "keine",
-          due_date: t.dueDate || null,
-        }));
-      }
-      return res.json({
-        jsonrpc: "2.0", id,
-        result: { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] }
-      });
-    } catch (err) {
-      return res.json({
-        jsonrpc: "2.0", id,
-        error: { code: -32000, message: err.message }
-      });
-    }
-  }
-
-  res.json({ jsonrpc: "2.0", id, result: {} });
-});
-
-app.get("/", (req, res) => res.send("TickTick MCP läuft ✅"));
-
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Server läuft auf Port ${PORT}`));
